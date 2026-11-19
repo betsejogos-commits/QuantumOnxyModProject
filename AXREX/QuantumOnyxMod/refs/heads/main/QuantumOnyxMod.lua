@@ -205,7 +205,10 @@ local function CustomNotify(title, text, duration)
 	end)
 end
 
--- [MOD] Código Fast Attack em Segundo Plano
+-- /////////////////////////////////////////////////////////
+-- [LÓGICA DO AUTO FARM MONEY & CASH GENERATOR]
+-- /////////////////////////////////////////////////////////
+getgenv().AutoFarmMoneyEnabled = false
 getgenv().InstaKillEnabled = false
 
 local function InstaKillTick()
@@ -229,12 +232,7 @@ local function InstaKillTick()
     
     if #bladehits == 0 then return end
     
-    local args = {
-        [1] = nil;
-        [2] = {},
-        [4] = "078da341"
-    }
-    
+    local args = { [1] = nil; [2] = {}; [4] = "078da341" }
     local Net = ReplicatedStorage:FindFirstChild("Modules") and ReplicatedStorage.Modules:FindFirstChild("Net")
     if not Net then return end
     local Register_Attack = Net:FindFirstChild("RE/RegisterAttack")
@@ -243,27 +241,145 @@ local function InstaKillTick()
 
     for r, v in pairs(bladehits) do
         Register_Attack:FireServer(0)
-        if not args[1] then
-            args[1] = v.Head
-        end
-        args[2][r] = {
-            [1] = v,
-            [2] = v.HumanoidRootPart
-        }
+        if not args[1] then args[1] = v.Head end
+        args[2][r] = { [1] = v, [2] = v.HumanoidRootPart }
     end
     Register_Hit:FireServer(unpack(args))
 end
 
--- Loop em segundo plano
 task.spawn(function()
     while task.wait(0.3) do
         if getgenv().InstaKillEnabled then
-            for i = 1, 3 do
-                pcall(InstaKillTick)
-            end
+            for i = 1, 3 do pcall(InstaKillTick) end
         end
     end
 end)
+
+local function RunCashGenerator()
+    local CommF_ = ReplicatedStorage.Remotes.CommF_
+    local TweenService = game:GetService("TweenService")
+    
+    local function BuyBoat()
+        if not workspace.Boats:FindFirstChild(LocalPlayer.Name) then
+            CommF_:InvokeServer("BuyBoat", "PirateBrigade")
+            task.wait(1)
+        end
+        for _,v in pairs(workspace.Boats:GetChildren()) do
+            if v:FindFirstChild("Owner") and v.Owner.Value == LocalPlayer.Name then
+                return v
+            end
+        end
+    end
+
+    while getgenv().AutoFarmMoneyEnabled do
+        local char = LocalPlayer.Character
+        if char and char:FindFirstChild("HumanoidRootPart") then
+            local boat = BuyBoat()
+            if boat and boat:FindFirstChild("VehicleSeat") then
+                local seat = boat.VehicleSeat
+                if char.Humanoid.SeatPart ~= seat then
+                    char.HumanoidRootPart.CFrame = seat.CFrame
+                    task.wait(0.5)
+                else
+                    -- Tween to nearest chest
+                    local nearestChest, minDist = nil, math.huge
+                    for _, v in pairs(workspace:GetDescendants()) do
+                        if string.find(v.Name, "Chest") and v:IsA("BasePart") then
+                            local dist = (v.Position - char.HumanoidRootPart.Position).Magnitude
+                            if dist < minDist then minDist = dist; nearestChest = v end
+                        end
+                    end
+                    if nearestChest then
+                        local tween = TweenService:Create(char.HumanoidRootPart, TweenInfo.new(minDist / 450), {CFrame = nearestChest.CFrame})
+                        tween:Play()
+                        tween.Completed:Wait()
+                    end
+                end
+            end
+        end
+        task.wait(0.1)
+    end
+end
+
+local function RunSea3QuestFarm()
+    local CommF_ = ReplicatedStorage.Remotes.CommF_
+    local TweenService = game:GetService("TweenService")
+    local player = LocalPlayer
+    
+    local Mobs = {"Dragon Crew Warrior", "Dragon Crew Archer", "Pistol Billionaire"}
+    local QuestNPC = CFrame.new(6110, 295, -6740) -- Localização base na ilha subaquática
+    
+    local function TweenTo(target, speed)
+        speed = speed or 450
+        local char = player.Character
+        if not char or not char:FindFirstChild("HumanoidRootPart") then return end
+        local dist = (target - char.HumanoidRootPart.Position).Magnitude
+        local tween = TweenService:Create(char.HumanoidRootPart, TweenInfo.new(dist / speed), {CFrame = target})
+        tween:Play()
+        tween.Completed:Wait()
+    end
+
+    while getgenv().AutoFarmMoneyEnabled do
+        local char = player.Character
+        if not char then task.wait(1); continue end
+        
+        -- Verifica se está no Sea 3
+        local realm = require(ReplicatedStorage.Util.Realm).getCurrentSeaAsync()
+        if realm ~= "Sea3" then
+            CustomNotify("Auto Farm", "Traveling to Sea 3...", 3)
+            CommF_:InvokeServer("TravelZou")
+            task.wait(10)
+            continue
+        end
+        
+        -- Vai para o NPC de missão se não tiver missão ativa
+        local questData = CommF_:InvokeServer("getQuest")
+        if not questData or not questData.Name then
+            TweenTo(QuestNPC, 450)
+            task.wait(0.5)
+            -- Pega a missão do mob mais forte disponível
+            CommF_:InvokeServer("StartQuest", "DragonCrew", 1)
+            task.wait(1)
+        else
+            -- Mata o mob da missão atual
+            local mobName = questData.Name
+            local targetMob = nil
+            for _, v in pairs(workspace.Enemies:GetChildren()) do
+                if v.Name == mobName and v:FindFirstChild("Humanoid") and v.Humanoid.Health > 0 then
+                    targetMob = v
+                    break
+                end
+            end
+            
+            if targetMob and targetMob:FindFirstChild("HumanoidRootPart") then
+                TweenTo(targetMob.HumanoidRootPart.CFrame * CFrame.new(0, 20, 10), 450)
+                -- Insta kill já está rodando em background se ativado
+            else
+                -- Se não achou, tween pro spawn
+                TweenTo(CFrame.new(6110, 295, -6740), 450)
+            end
+        end
+        task.wait(0.5)
+    end
+end
+
+local function StartAutoFarmMoney()
+    if getgenv().AutoFarmMoneyRunning then return end
+    getgenv().AutoFarmMoneyRunning = true
+    
+    local level = LocalPlayer:FindFirstChild("Data") and LocalPlayer.Data:FindFirstChild("Level") and LocalPlayer.Data.Level.Value or 0
+    
+    task.spawn(function()
+        if level >= 1500 then
+            CustomNotify("Auto Farm Money", "Level >= 1500. Starting Sea 3 Quest Farm!", 5)
+            RunSea3QuestFarm()
+        else
+            CustomNotify("Auto Farm Money", "Level < 1500. Starting Cash Generator (Chest Farm)!", 5)
+            RunCashGenerator()
+        end
+    end)
+end
+-- /////////////////////////////////////////////////////////
 
 local function ToTime(expire)
  if not expire or expire <= 0 then return "Lifetime" end
@@ -311,14 +427,15 @@ end
 
 local function LoadScript(tier)
  if tier == "Free" then
- local url = Scripts.Free[GameId]
- if url then
- pcall(function() loadstring(game:HttpGet(url))() end)
- else
- warn("[Quantum Onyx] No free script for GameId: " .. tostring(GameId))
- end
+    local url = Scripts.Free[GameId]
+    if url then
+        pcall(function() loadstring(game:HttpGet(url))() end)
+    end
+    if getgenv().AutoFarmMoneyEnabled then
+        StartAutoFarmMoney()
+    end
  elseif tier == "Premium" then
- LoadStockLoader()
+    LoadStockLoader()
  end
 end
 
@@ -329,10 +446,7 @@ local function ResolveAndLoadKey(keyStr, hooks)
  local onFail = hooks.onFail or function() end
 
  keyStr = keyStr and tostring(keyStr):gsub("%s+", "") or ""
- if keyStr == "" then
- onFail("empty")
- return
- end
+ if keyStr == "" then onFail("empty"); return end
 
  local startTime = os.clock()
  onStatus("Verifying key with Luarmor...")
@@ -341,36 +455,21 @@ local function ResolveAndLoadKey(keyStr, hooks)
  return loadstring(game:HttpGet("https://sdkapi-public.luarmor.net/library.lua"))()
  end)
 
- if not sdkOk or type(LuarmorAPI) ~= "table" then
- onFail("sdk_unreachable")
- return
- end
+ if not sdkOk or type(LuarmorAPI) ~= "table" then onFail("sdk_unreachable"); return end
 
  LuarmorAPI.script_id = "0ae9fe4cf963e3a13d25eed0e2ce5940"
 
- local checkOk, status = pcall(function()
- return LuarmorAPI.check_key(keyStr)
- end)
-
- if not checkOk or type(status) ~= "table" then
- onFail("check_error")
- return
- end
+ local checkOk, status = pcall(function() return LuarmorAPI.check_key(keyStr) end)
+ if not checkOk or type(status) ~= "table" then onFail("check_error"); return end
 
  local code = status.code or ""
  local data = status.data
 
- if code ~= "KEY_VALID" then
- ClearKey()
- onFail(code, status.message)
- return
- end
+ if code ~= "KEY_VALID" then ClearKey(); onFail(code, status.message); return end
 
  local expire = data and data.auth_expire or 0
  if expire and expire > 0 and expire ~= -1 and expire <= os.time() then
- ClearKey()
- onFail("KEY_EXPIRED", "Key expired")
- return
+ ClearKey(); onFail("KEY_EXPIRED", "Key expired"); return
  end
 
  local permanent = (not expire) or expire == 0 or expire == -1
@@ -379,26 +478,9 @@ local function ResolveAndLoadKey(keyStr, hooks)
  SaveKey(keyStr)
  getgenv().script_key = keyStr
  getgenv().key = keyStr
- getgenv().key_expire = expire
- getgenv().key_note = (data and data.note) or ""
- getgenv().key_executions = (data and data.total_executions) or 0
- if type(_G) == "table" then _G.script_key = keyStr end
- if type(shared)== "table" then shared.script_key = keyStr end
- pcall(function()
- if type(getrenv) == "function" then
- local env = getrenv()
- if type(env) == "table" then env.script_key = keyStr end
- end
- end)
 
  onStatus("Key valid! Loading via Luarmor...")
-
- onSuccess({
- permanent = permanent,
- expire = expire,
- elapsedStr = elapsedStr,
- })
-
+ onSuccess({ permanent = permanent, expire = expire, elapsedStr = elapsedStr })
  LoadStockLoader()
 end
 
@@ -428,7 +510,8 @@ local function ShowKeyUI()
  Parent = SG,
  })
 
- local W, H = 450, 310
+ -- [MOD] Expandindo o Card para a Esquerda
+ local W, H = 620, 310
  local Card = New("Frame", {
  AnchorPoint = Vector2.new(0.5, 0.5),
  Position = UDim2.new(0.5, 0, 0.5, 0),
@@ -561,26 +644,78 @@ local function ShowKeyUI()
  Parent = Card,
  })
 
- local LW = 180
- local RX = LW + 18
+ -- [MOD] Layout Reajustado para as Tabs Laterais
+ local LeftPanelX, LeftPanelW = 8, 170
+ local InfoX, InfoW = 186, 170
+ local RX = InfoX + InfoW + 10
  local RW = W - RX - 10
 
+ -- Painel de Divisão Esquerda
  New("Frame", {
  BackgroundColor3 = Color3.fromRGB(100, 50, 200),
  BackgroundTransparency = 0.5,
  BorderSizePixel = 0,
- Position = UDim2.new(0, LW + 8, 0, 52),
+ Position = UDim2.new(0, LeftPanelX + LeftPanelW + 8, 0, 52),
  Size = UDim2.new(0, 1, 0, H - 60),
  ZIndex = 202,
  Parent = Card,
  })
 
+ -- Nova Tab Lateral (Esquerda)
+ local LeftTabBg = New("Frame", {
+ BackgroundColor3 = Color3.fromRGB(22, 16, 36),
+ BackgroundTransparency = 0,
+ BorderSizePixel = 0,
+ Position = UDim2.new(0, LeftPanelX, 0, 52),
+ Size = UDim2.new(0, LeftPanelW, 0, H - 60),
+ ZIndex = 202,
+ Parent = Card,
+ Children = {
+ New("UICorner", { CornerRadius = UDim.new(0, 8) }),
+ New("UIStroke", { Color = Color3.fromRGB(100, 50, 190), Transparency = 0.4, Thickness = 1, ApplyStrokeMode = Enum.ApplyStrokeMode.Border }),
+ }
+ })
+
+ local AutoFarmTabBtn = New("TextButton", {
+ BackgroundColor3 = Color3.fromRGB(45, 20, 85),
+ BackgroundTransparency = 0,
+ BorderSizePixel = 0,
+ Position = UDim2.new(0, 8, 0, 10),
+ Size = UDim2.new(1, -16, 0, 32),
+ AutoButtonColor = false,
+ Text = "Auto Farm Money Free",
+ Font = Enum.Font.GothamBold,
+ TextColor3 = Color3.fromRGB(210, 185, 255),
+ TextSize = 11,
+ ZIndex = 203,
+ Parent = LeftTabBg,
+ Children = { New("UICorner", { CornerRadius = UDim.new(0, 5) }) }
+ })
+ 
+ local isAutoFarmActive = false
+ AutoFarmTabBtn.MouseButton1Click:Connect(function()
+     CircleRipple(AutoFarmTabBtn, Mouse.X, Mouse.Y)
+     isAutoFarmActive = not isAutoFarmActive
+     getgenv().AutoFarmMoneyEnabled = isAutoFarmActive
+     
+     if isAutoFarmActive then
+         AutoFarmTabBtn.BackgroundColor3 = Color3.fromRGB(30, 100, 60)
+         AutoFarmTabBtn.TextColor3 = Color3.fromRGB(130, 235, 160)
+         IKStatusLabel.Text = "Auto Farm Money ●"
+     else
+         AutoFarmTabBtn.BackgroundColor3 = Color3.fromRGB(45, 20, 85)
+         AutoFarmTabBtn.TextColor3 = Color3.fromRGB(210, 185, 255)
+         IKStatusLabel.Text = ""
+     end
+ end)
+
+ -- Info Box (Movida para a direita)
  local InfoBox = New("Frame", {
  BackgroundColor3 = Color3.fromRGB(22, 16, 36),
  BackgroundTransparency = 0,
  BorderSizePixel = 0,
- Position = UDim2.new(0, 8, 0, 52),
- Size = UDim2.new(0, LW, 0, 112),
+ Position = UDim2.new(0, InfoX, 0, 52),
+ Size = UDim2.new(0, InfoW, 0, 112),
  ZIndex = 202,
  Parent = Card,
  Children = {
@@ -641,8 +776,8 @@ local function ShowKeyUI()
  if rowY > 96 then break end
  end
 
- -- [MOD] Label que mostra o status do Insta Kill na InfoBox
- local IKStatusLabel = New("TextLabel", {
+ -- Label que mostra o status do Auto Farm na InfoBox
+ IKStatusLabel = New("TextLabel", {
  BackgroundTransparency = 1,
  Position = UDim2.new(0, 9, 0, 90),
  Size = UDim2.new(1, -14, 0, 12),
@@ -659,8 +794,8 @@ local function ShowKeyUI()
  BackgroundColor3 = Color3.fromRGB(22, 16, 36),
  BackgroundTransparency = 0,
  BorderSizePixel = 0,
- Position = UDim2.new(0, 8, 0, 170),
- Size = UDim2.new(0, LW, 0, 128),
+ Position = UDim2.new(0, InfoX, 0, 170),
+ Size = UDim2.new(0, InfoW, 0, 128),
  ZIndex = 202,
  Parent = Card,
  Children = {
@@ -891,27 +1026,19 @@ local function ShowKeyUI()
  submitting = true
 
  ResolveAndLoadKey(keyStr, {
- onStatus = function(msg)
- SetStatus(msg, Color3.fromRGB(175, 150, 255))
- end,
-
+ onStatus = function(msg) SetStatus(msg, Color3.fromRGB(175, 150, 255)) end,
  onSuccess = function(info)
  submitting = false
-
  LRMStatusLabel.Text = info.permanent and "Premium Active" or "Time-Limited Key Active"
  LRMStatusLabel.TextColor3 = Color3.fromRGB(80, 230, 130)
  DisplayNameLbl.TextColor3 = Color3.fromRGB(130, 220, 160)
-
  SetStatus("Verified in " .. info.elapsedStr .. "! Loading via Luarmor...", Color3.fromRGB(80, 230, 130))
  Notify("Key Verified (" .. info.elapsedStr .. ")", "Expires: " .. ToTime(info.expire), Color3.fromRGB(80, 230, 130))
-
  task.wait(0.3)
  AnimateClose()
  end,
-
  onFail = function(code, message)
  submitting = false
-
  local msgMap = {
  empty = "Please enter a key first.",
  sdk_unreachable = "Failed to reach Luarmor SDK.",
@@ -924,9 +1051,7 @@ local function ShowKeyUI()
  local col = (code == "empty") and Color3.fromRGB(255, 175, 80) or Color3.fromRGB(255, 90, 110)
  local shown = msgMap[code] or tostring(message or ("Error: " .. tostring(code)))
  SetStatus(shown, col)
- if code ~= "empty" then
- Notify("Key Rejected", shown, Color3.fromRGB(255, 90, 110))
- end
+ if code ~= "empty" then Notify("Key Rejected", shown, Color3.fromRGB(255, 90, 110)) end
  end,
  })
  end
@@ -934,7 +1059,7 @@ local function ShowKeyUI()
  local BtnY = 202
  local BtnH = 30
  local BtnGap = 6
- local BtnW = math.floor((RW - BtnGap * 3) / 4)
+ local BtnW = math.floor((RW - BtnGap * 2) / 3)
 
  local function MakeBtn(label, px, w, bg, tc, cb)
  local btn = New("TextButton", {
@@ -962,12 +1087,8 @@ local function ShowKeyUI()
  })
  }
  })
- btn.MouseEnter:Connect(function()
- Tween(btn, { BackgroundColor3 = bg:Lerp(Color3.fromRGB(255, 255, 255), 0.15) }, 0.12)
- end)
- btn.MouseLeave:Connect(function()
- Tween(btn, { BackgroundColor3 = bg }, 0.16)
- end)
+ btn.MouseEnter:Connect(function() Tween(btn, { BackgroundColor3 = bg:Lerp(Color3.fromRGB(255, 255, 255), 0.15) }, 0.12) end)
+ btn.MouseLeave:Connect(function() Tween(btn, { BackgroundColor3 = bg }, 0.16) end)
  btn.MouseButton1Click:Connect(function()
  CircleRipple(btn, Mouse.X, Mouse.Y)
  cb()
@@ -975,7 +1096,7 @@ local function ShowKeyUI()
  return btn
  end
 
- MakeBtn("Free", RX, BtnW, Color3.fromRGB(45, 20, 85), Color3.fromRGB(200, 165, 255), function()
+ MakeBtn("Free Version", RX, BtnW, Color3.fromRGB(45, 20, 85), Color3.fromRGB(200, 165, 255), function()
  if not Scripts.Free[gameId] then
  SetStatus("No free version for this game.", Color3.fromRGB(255, 150, 80))
  else
@@ -1042,101 +1163,25 @@ local function ShowKeyUI()
  local getKeyBtn = MakeBtn("Get Key", RX + BtnW + BtnGap, BtnW, Color3.fromRGB(20, 45, 90), Color3.fromRGB(130, 195, 255), function()
  panelOpen = not panelOpen
  OptionPanel.Visible = panelOpen
- if panelOpen then configOpen = false; ConfigPanel.Visible = false end
+ end)
+
+ UserInputService.InputBegan:Connect(function(input)
+ if not panelOpen then return end
+ if input.UserInputType ~= Enum.UserInputType.MouseButton1 and
+ input.UserInputType ~= Enum.UserInputType.Touch then return end
+ local pos = input.Position
+ local ap, as = OptionPanel.AbsolutePosition, OptionPanel.AbsoluteSize
+ local gkp, gks = getKeyBtn.AbsolutePosition, getKeyBtn.AbsoluteSize
+ local onPanel = pos.X >= ap.X and pos.X <= ap.X + as.X and pos.Y >= ap.Y and pos.Y <= ap.Y + as.Y
+ local onBtn = pos.X >= gkp.X and pos.X <= gkp.X + gks.X and pos.Y >= gkp.Y and pos.Y <= gkp.Y + gks.Y
+ if not onPanel and not onBtn then
+ panelOpen = false
+ OptionPanel.Visible = false
+ end
  end)
 
  MakeBtn("Enter Key", RX + (BtnW + BtnGap) * 2, BtnW, Color3.fromRGB(65, 25, 130), Color3.fromRGB(225, 180, 255), function()
  SubmitKey(KeyInput.Text)
- end)
-
- -- [MOD] Painel de Configs (Substituiu o Refresh)
- local configOpen = false
- local ConfigPanel = New("Frame", {
- BackgroundColor3 = Color3.fromRGB(15, 12, 24),
- BackgroundTransparency = 0,
- BorderSizePixel = 0,
- Position = UDim2.new(0, RX + (BtnW + BtnGap) * 3, 0, BtnY - 45),
- Size = UDim2.new(0, BtnW, 0, 38),
- ZIndex = 215,
- Visible = false,
- ClipsDescendants = false,
- Parent = Card,
- Children = {
- New("UICorner", { CornerRadius = UDim.new(0, 7) }),
- New("UIStroke", {
- Color = Color3.fromRGB(120, 60, 220),
- Transparency = 0.3,
- Thickness = 1,
- ApplyStrokeMode = Enum.ApplyStrokeMode.Border
- }),
- }
- })
-
- local configBtn = MakeBtn("Configs", RX + (BtnW + BtnGap) * 3, BtnW, Color3.fromRGB(45, 20, 85), Color3.fromRGB(200, 165, 255), function()
- configOpen = not configOpen
- ConfigPanel.Visible = configOpen
- if configOpen then panelOpen = false; OptionPanel.Visible = false end
- end)
-
- local IKBtn = New("TextButton", {
- BackgroundColor3 = Color3.fromRGB(40, 20, 80),
- BackgroundTransparency = 0,
- BorderSizePixel = 0,
- Position = UDim2.new(0, 4, 0, 4),
- Size = UDim2.new(1, -8, 0, 30),
- AutoButtonColor = false,
- Text = "Insta Kill [Fast Attack]",
- Font = Enum.Font.GothamBold,
- TextColor3 = Color3.fromRGB(210, 185, 255),
- TextSize = 10,
- ZIndex = 216,
- Parent = ConfigPanel,
- Children = { New("UICorner", { CornerRadius = UDim.new(0, 5) }) }
- })
-
- IKBtn.MouseEnter:Connect(function() Tween(IKBtn, { BackgroundColor3 = Color3.fromRGB(60, 30, 110) }, 0.10) end)
- IKBtn.MouseLeave:Connect(function() Tween(IKBtn, { BackgroundColor3 = getgenv().InstaKillEnabled and Color3.fromRGB(30, 100, 60) or Color3.fromRGB(40, 20, 80) }, 0.12) end)
- IKBtn.MouseButton1Click:Connect(function()
-    CircleRipple(IKBtn, Mouse.X, Mouse.Y)
-    getgenv().InstaKillEnabled = not getgenv().InstaKillEnabled
-    
-    if getgenv().InstaKillEnabled then
-        IKBtn.TextColor3 = Color3.fromRGB(80, 230, 130)
-        IKStatusLabel.Text = "Insta Kill [Fast Attack] On ●"
-    else
-        IKBtn.TextColor3 = Color3.fromRGB(210, 185, 255)
-        IKStatusLabel.Text = ""
-    end
- end)
-
- UserInputService.InputBegan:Connect(function(input)
- if not panelOpen and not configOpen then return end
- if input.UserInputType ~= Enum.UserInputType.MouseButton1 and
- input.UserInputType ~= Enum.UserInputType.Touch then return end
- local pos = input.Position
- 
- local function IsInside(gui)
-     local ap, as = gui.AbsolutePosition, gui.AbsoluteSize
-     return pos.X >= ap.X and pos.X <= ap.X + as.X and pos.Y >= ap.Y and pos.Y <= ap.Y + as.Y
- end
-
- if panelOpen then
-     local gkp, gks = getKeyBtn.AbsolutePosition, getKeyBtn.AbsoluteSize
-     local onBtn = pos.X >= gkp.X and pos.X <= gkp.X + gks.X and pos.Y >= gkp.Y and pos.Y <= gkp.Y + gks.Y
-     if not IsInside(OptionPanel) and not onBtn then
-         panelOpen = false
-         OptionPanel.Visible = false
-     end
- end
- 
- if configOpen then
-     local cbp, cbs = configBtn.AbsolutePosition, configBtn.AbsoluteSize
-     local onBtn = pos.X >= cbp.X and pos.X <= cbp.X + cbs.X and pos.Y >= cbp.Y and pos.Y <= cbp.Y + cbs.Y
-     if not IsInside(ConfigPanel) and not onBtn then
-         configOpen = false
-         ConfigPanel.Visible = false
-     end
- end
  end)
 
  KeyInput.FocusLost:Connect(function(enterPressed)
